@@ -168,22 +168,19 @@ jobs:
           PROXY_IP="${{ github.event.inputs.proxy_ip }}"
 
           # ── Write wrangler.toml so workers_dev=true is EXPLICIT ────────
-          # Without this, wrangler may deploy the script but not bind it to
-          # the workers.dev subdomain → worker shows "0 workers bound".
-          cat > wrangler.toml <<TOML
-          name = "${WORKER_NAME}"
-          main = "worker.js"
-          compatibility_date = "2024-12-01"
-          workers_dev = true
-
-          [vars]
-          UUID = "${UUID}"
-          WS_PATH = "${WS_PATH}"
-          DEPLOY_TIME = "${DEPLOY_TIME}"
-          TOML
-
+          # IMPORTANT: use printf (not heredoc) — heredoc inside a YAML block
+          # inherits the YAML indentation, producing invalid TOML with leading
+          # spaces on every line, which wrangler silently ignores/misparses.
+          printf 'name = "%s"\n'             "${WORKER_NAME}"  > wrangler.toml
+          printf 'main = "worker.js"\n'                       >> wrangler.toml
+          printf 'compatibility_date = "2024-12-01"\n'        >> wrangler.toml
+          printf 'workers_dev = true\n'                       >> wrangler.toml
+          printf '\n[vars]\n'                                >> wrangler.toml
+          printf 'UUID = "%s"\n'             "${UUID}"        >> wrangler.toml
+          printf 'WS_PATH = "%s"\n'          "${WS_PATH}"     >> wrangler.toml
+          printf 'DEPLOY_TIME = "%s"\n'      "${DEPLOY_TIME}" >> wrangler.toml
           if [ -n "${PROXY_IP}" ]; then
-            printf 'PROXYIP = "%s"\n' "${PROXY_IP}" >> wrangler.toml
+            printf 'PROXYIP = "%s"\n'        "${PROXY_IP}"    >> wrangler.toml
           fi
 
           echo "── wrangler.toml ────────────────────────────────────────"
@@ -405,7 +402,7 @@ jobs:
           
           <p align="center">
             <a href="#">
-              <img src="assets/banner-ascii.svg" width="100%" />
+              <img src="https://github.com/RANGER-exe/CloudBreak/assets/banner-ascii.svg" width="100%" />
             </a>
           </p>
           
