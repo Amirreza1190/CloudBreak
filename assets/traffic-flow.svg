@@ -1,0 +1,202 @@
+<svg viewBox="0 0 860 380" xmlns="http://www.w3.org/2000/svg" width="860" height="380">
+  <defs>
+    <linearGradient id="G" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%">
+        <animate attributeName="stop-color" values="#00ffcc;#00cfff;#a855f7;#00ffcc" dur="6s" repeatCount="indefinite"/>
+      </stop>
+      <stop offset="100%">
+        <animate attributeName="stop-color" values="#a855f7;#00ffcc;#00cfff;#a855f7" dur="6s" repeatCount="indefinite"/>
+      </stop>
+    </linearGradient>
+    <filter id="glow">
+      <feGaussianBlur stdDeviation="3" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <filter id="glowSm">
+      <feGaussianBlur stdDeviation="1.5" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+    <marker id="arr" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L0,5.5 L6,3 z" fill="#00ffcc"/>
+    </marker>
+    <marker id="arrP" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L0,5.5 L6,3 z" fill="#a855f7"/>
+    </marker>
+    <marker id="arrR" markerWidth="7" markerHeight="7" refX="5" refY="3" orient="auto">
+      <path d="M0,0.5 L0,5.5 L6,3 z" fill="#ff4444"/>
+    </marker>
+
+    <path id="fwd" d="M 148,110 L 310,110 L 520,110 L 700,110"/>
+    <path id="bwd" d="M 700,140 L 520,140 L 310,140 L 148,140"/>
+  </defs>
+
+  <rect width="860" height="380" fill="#060612"/>
+
+  <g stroke="#00ffcc" stroke-opacity="0.04" stroke-width="0.5">
+    <line x1="0" y1="70" x2="860" y2="70"/>
+    <line x1="0" y1="200" x2="860" y2="200"/>
+    <line x1="0" y1="270" x2="860" y2="270"/>
+    <line x1="148" y1="0" x2="148" y2="380"/>
+    <line x1="310" y1="0" x2="310" y2="380"/>
+    <line x1="520" y1="0" x2="520" y2="380"/>
+    <line x1="700" y1="0" x2="700" y2="380"/>
+  </g>
+
+  <text x="430" y="26" text-anchor="middle"
+    font-family="'Courier New',monospace" font-size="11" font-weight="bold"
+    fill="url(#G)" filter="url(#glowSm)" letter-spacing="5">⚡  CLOUDBREAK — TRAFFIC FLOW</text>
+  <line x1="60" y1="33" x2="800" y2="33" stroke="url(#G)" stroke-width="0.5" stroke-opacity="0.35"/>
+
+  <g font-family="'Courier New',monospace" text-anchor="middle">
+    <text x="74"  y="58" font-size="8.5" fill="#667788" letter-spacing="1">CLIENT</text>
+    <text x="230" y="58" font-size="8.5" fill="#ff6666" letter-spacing="1">DPI WALL</text>
+    <text x="415" y="58" font-size="8.5" fill="#f38020" letter-spacing="1">CLOUDFLARE CDN</text>
+    <text x="610" y="58" font-size="8.5" fill="#667788" letter-spacing="1">WORKER JS</text>
+    <text x="780" y="58" font-size="8.5" fill="#667788" letter-spacing="1">INTERNET</text>
+  </g>
+
+  <g filter="url(#glowSm)">
+    <rect x="20" y="68" width="108" height="80" rx="6" fill="#0a0a1e" stroke="url(#G)" stroke-width="1.3"/>
+    <text x="74" y="98"  text-anchor="middle" font-size="22">📱</text>
+    <text x="74" y="118" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#00ffcc" font-weight="bold">YOUR DEVICE</text>
+    <text x="74" y="133" text-anchor="middle" font-family="'Courier New',monospace" font-size="7.5" fill="#445566">V2rayNG · Hiddify</text>
+    <circle cx="74" cy="108" r="42" fill="none" stroke="#00ffcc" stroke-width="0.5" stroke-opacity="0.15">
+      <animate attributeName="r" values="42;50;42" dur="3s" repeatCount="indefinite"/>
+      <animate attributeName="stroke-opacity" values="0.15;0;0.15" dur="3s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <g>
+    <rect x="214" y="60" width="4" height="108" rx="2" fill="#ff4444">
+      <animate attributeName="opacity" values="0.7;1;0.7" dur="1.4s" repeatCount="indefinite"/>
+    </rect>
+    <rect x="207" y="60" width="18" height="108" rx="2" fill="#ff4444" fill-opacity="0.06"/>
+    <text x="230" y="185" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#ff4444" letter-spacing="1">FILTER</text>
+    <line x1="196" y1="114" x2="244" y2="114" stroke="#ff4444" stroke-width="0.6" stroke-dasharray="3,3" stroke-opacity="0.4">
+      <animate attributeName="stroke-opacity" values="0.4;0.1;0.4" dur="0.9s" repeatCount="indefinite"/>
+    </line>
+  </g>
+
+  <g filter="url(#glowSm)">
+    <rect x="316" y="68" width="200" height="80" rx="6" fill="#0a0a1e" stroke="#f38020" stroke-width="1.3" stroke-opacity="0.8"/>
+    <text x="416" y="96"  text-anchor="middle" font-size="22">☁️</text>
+    <text x="416" y="116" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#f38020" font-weight="bold">CLOUDFLARE EDGE</text>
+    <text x="416" y="131" text-anchor="middle" font-family="'Courier New',monospace" font-size="7.5" fill="#00ffcc">Real TLS · Real SNI · 200+ PoP</text>
+    <ellipse cx="416" cy="108" rx="108" ry="48" fill="none" stroke="#f38020" stroke-width="0.5" stroke-opacity="0.2" stroke-dasharray="4,6">
+      <animateTransform attributeName="transform" type="rotate" from="0 416 108" to="360 416 108" dur="14s" repeatCount="indefinite"/>
+    </ellipse>
+  </g>
+
+  <g filter="url(#glowSm)">
+    <rect x="526" y="68" width="168" height="80" rx="6" fill="#0a0a1e" stroke="url(#G)" stroke-width="1.3"/>
+    <text x="610" y="96"  text-anchor="middle" font-size="22">⚙️</text>
+    <text x="610" y="116" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#00ffcc" font-weight="bold">VLESS WORKER</text>
+    <text x="610" y="131" text-anchor="middle" font-family="'Courier New',monospace" font-size="7.5" fill="#445566">Parse · Proxy · Forward</text>
+    <circle cx="610" cy="90" r="14" fill="none" stroke="#a855f7" stroke-width="0.6" stroke-opacity="0.3" stroke-dasharray="3,5">
+      <animateTransform attributeName="transform" type="rotate" from="0 610 90" to="360 610 90" dur="5s" repeatCount="indefinite"/>
+    </circle>
+  </g>
+
+  <g filter="url(#glowSm)">
+    <rect x="706" y="68" width="134" height="80" rx="6" fill="#0a0a1e" stroke="url(#G)" stroke-width="1.3"/>
+    <text x="773" y="96"  text-anchor="middle" font-size="22">🌐</text>
+    <text x="773" y="116" text-anchor="middle" font-family="'Courier New',monospace" font-size="9" fill="#00ffcc" font-weight="bold">OPEN INTERNET</text>
+    <text x="773" y="131" text-anchor="middle" font-family="'Courier New',monospace" font-size="7.5" fill="#39ff14">Any Site · Any Port</text>
+  </g>
+
+  <line x1="128" y1="110" x2="210" y2="110" stroke="#00ffcc" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)">
+    <animate attributeName="stroke-dashoffset" values="0;-16" dur="0.8s" repeatCount="indefinite"/>
+  </line>
+  <line x1="220" y1="110" x2="314" y2="110" stroke="#00ffcc" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)">
+    <animate attributeName="stroke-dashoffset" values="0;-16" dur="0.8s" repeatCount="indefinite"/>
+  </line>
+  <line x1="516" y1="110" x2="524" y2="110" stroke="#00ffcc" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)">
+    <animate attributeName="stroke-dashoffset" values="0;-16" dur="0.8s" repeatCount="indefinite"/>
+  </line>
+  <line x1="694" y1="110" x2="704" y2="110" stroke="#00ffcc" stroke-width="1.5" stroke-dasharray="5,3" marker-end="url(#arr)">
+    <animate attributeName="stroke-dashoffset" values="0;-16" dur="0.8s" repeatCount="indefinite"/>
+  </line>
+
+  <line x1="704" y1="140" x2="694" y2="140" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrP)">
+    <animate attributeName="stroke-dashoffset" values="0;16" dur="1s" repeatCount="indefinite"/>
+  </line>
+  <line x1="524" y1="140" x2="516" y2="140" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrP)">
+    <animate attributeName="stroke-dashoffset" values="0;16" dur="1s" repeatCount="indefinite"/>
+  </line>
+  <line x1="314" y1="140" x2="220" y2="140" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrP)">
+    <animate attributeName="stroke-dashoffset" values="0;16" dur="1s" repeatCount="indefinite"/>
+  </line>
+  <line x1="210" y1="140" x2="128" y2="140" stroke="#a855f7" stroke-width="1" stroke-dasharray="4,4" marker-end="url(#arrP)">
+    <animate attributeName="stroke-dashoffset" values="0;16" dur="1s" repeatCount="indefinite"/>
+  </line>
+
+  <text x="168" y="104" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#00ffcc">TLS 1.3</text>
+  <text x="168" y="150" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#a855f7">Response</text>
+  <text x="555" y="104" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#00cfff">WS→TCP</text>
+  <text x="650" y="104" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#39ff14">TCP</text>
+
+  <circle r="5" fill="#00ffcc" filter="url(#glow)" opacity="0">
+    <animateMotion dur="3.5s" repeatCount="indefinite"><mpath href="#fwd"/></animateMotion>
+    <animate attributeName="opacity" values="0;1;1;1;0" dur="3.5s" repeatCount="indefinite"/>
+  </circle>
+  <circle r="4" fill="#a855f7" filter="url(#glow)" opacity="0">
+    <animateMotion dur="3.5s" repeatCount="indefinite" begin="1.75s"><mpath href="#bwd"/></animateMotion>
+    <animate attributeName="opacity" values="0;1;1;1;0" dur="3.5s" repeatCount="indefinite" begin="1.75s"/>
+  </circle>
+
+  <text x="230" y="178" text-anchor="middle" font-family="'Courier New',monospace" font-size="7.5" fill="#ff4444" font-weight="bold">DPI SEES:</text>
+  <text x="230" y="191" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#ff8888">Normal HTTPS ✓</text>
+  <text x="230" y="202" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#ff8888">Cloudflare SNI ✓</text>
+  <line x1="216" y1="170" x2="216" y2="163" stroke="#ff4444" stroke-width="0.7" stroke-dasharray="2,2" stroke-opacity="0.5"/>
+
+  <rect x="20" y="215" width="192" height="145" rx="6" fill="#0d0008" stroke="#ff4444" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="116" y="233" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#ff4444" font-weight="bold" letter-spacing="2">🚫  BLOCKED</text>
+  <line x1="30" y1="238" x2="202" y2="238" stroke="#ff4444" stroke-width="0.4" stroke-opacity="0.4"/>
+  <g font-family="'Courier New',monospace" font-size="8.5">
+    <circle cx="38" cy="253" r="3" fill="#ff4444"><animate attributeName="opacity" values="1;0.3;1" dur="1.8s" repeatCount="indefinite"/></circle>
+    <text x="48" y="257" fill="#ff7777">V2Ray Direct TCP</text><text x="202" y="257" text-anchor="end" fill="#ff3333">✗</text>
+    <circle cx="38" cy="273" r="3" fill="#ff4444"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.8s" repeatCount="indefinite"/></circle>
+    <text x="48" y="277" fill="#ff7777">WireGuard UDP</text><text x="202" y="277" text-anchor="end" fill="#ff3333">✗</text>
+    <circle cx="38" cy="293" r="3" fill="#ff4444"><animate attributeName="opacity" values="1;0.3;1" dur="2.2s" repeatCount="indefinite"/></circle>
+    <text x="48" y="297" fill="#ff7777">OpenVPN</text><text x="202" y="297" text-anchor="end" fill="#ff3333">✗</text>
+    <circle cx="38" cy="313" r="3" fill="#ff4444"><animate attributeName="opacity" values="0.3;1;0.3" dur="1.6s" repeatCount="indefinite"/></circle>
+    <text x="48" y="317" fill="#ff7777">Tor / SSTP</text><text x="202" y="317" text-anchor="end" fill="#ff3333">✗</text>
+    <line x1="28" y1="326" x2="202" y2="326" stroke="#00ffcc" stroke-width="0.4" stroke-opacity="0.3"/>
+    <circle cx="38" cy="343" r="3" fill="#00ffcc" filter="url(#glowSm)"/>
+    <text x="48" y="347" fill="#00ffcc" font-weight="bold">CloudBreak</text><text x="202" y="347" text-anchor="end" fill="#39ff14" font-weight="bold">✓</text>
+  </g>
+
+  <rect x="228" y="215" width="340" height="145" rx="6" fill="#080818" stroke="url(#G)" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="398" y="233" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#00ffcc" font-weight="bold" letter-spacing="2">PROTOCOL STACK</text>
+  <line x1="238" y1="238" x2="558" y2="238" stroke="url(#G)" stroke-width="0.4" stroke-opacity="0.4"/>
+  <g font-family="'Courier New',monospace" font-size="8">
+    <rect x="238" y="244" width="310" height="16" rx="2" fill="#00ffcc" fill-opacity="0.1" stroke="#00ffcc" stroke-width="0.4" stroke-opacity="0.5"/>
+    <text x="393" y="255" text-anchor="middle" fill="#00ffcc">VLESS  ·  Encrypted payload</text>
+    <rect x="238" y="263" width="310" height="16" rx="2" fill="#a855f7" fill-opacity="0.1" stroke="#a855f7" stroke-width="0.4" stroke-opacity="0.5"/>
+    <text x="393" y="274" text-anchor="middle" fill="#a855f7">WebSocket  ·  Port 443</text>
+    <rect x="238" y="282" width="310" height="16" rx="2" fill="#f38020" fill-opacity="0.1" stroke="#f38020" stroke-width="0.4" stroke-opacity="0.5"/>
+    <text x="393" y="293" text-anchor="middle" fill="#f38020">TLS 1.3  ·  Chrome fingerprint  ·  ALPN h2</text>
+    <rect x="238" y="301" width="310" height="16" rx="2" fill="#00cfff" fill-opacity="0.1" stroke="#00cfff" stroke-width="0.4" stroke-opacity="0.5"/>
+    <text x="393" y="312" text-anchor="middle" fill="#00cfff">TCP  ·  SNI = *.workers.dev</text>
+    <rect x="238" y="320" width="310" height="16" rx="2" fill="#39ff14" fill-opacity="0.07" stroke="#39ff14" stroke-width="0.4" stroke-opacity="0.4"/>
+    <text x="393" y="331" text-anchor="middle" fill="#39ff14">IP  ·  Cloudflare Anycast  ·  DPI: normal HTTPS</text>
+    <rect x="238" y="339" width="310" height="16" rx="2" fill="#ffd700" fill-opacity="0.07" stroke="#ffd700" stroke-width="0.4" stroke-opacity="0.4"/>
+    <text x="393" y="350" text-anchor="middle" fill="#ffd700">Ethernet  ·  Port 443 (never blocked)</text>
+  </g>
+
+  <rect x="584" y="215" width="256" height="145" rx="6" fill="#080818" stroke="url(#G)" stroke-width="1" stroke-opacity="0.5"/>
+  <text x="712" y="233" text-anchor="middle" font-family="'Courier New',monospace" font-size="8.5" fill="#00ffcc" font-weight="bold" letter-spacing="2">CONFIG</text>
+  <line x1="594" y1="238" x2="830" y2="238" stroke="url(#G)" stroke-width="0.4" stroke-opacity="0.4"/>
+  <g font-family="'Courier New',monospace" font-size="8.5">
+    <text x="596" y="256" fill="#667788">Protocol</text>  <text x="828" y="256" text-anchor="end" fill="#00ffcc">VLESS + VMess</text>
+    <text x="596" y="272" fill="#667788">Transport</text> <text x="828" y="272" text-anchor="end" fill="#00ffcc">WebSocket</text>
+    <text x="596" y="288" fill="#667788">Port</text>      <text x="828" y="288" text-anchor="end" fill="#39ff14">443</text>
+    <text x="596" y="304" fill="#667788">TLS</text>       <text x="828" y="304" text-anchor="end" fill="#39ff14">Genuine CF Cert</text>
+    <text x="596" y="320" fill="#667788">Fingerprint</text><text x="828" y="320" text-anchor="end" fill="#f38020">chrome</text>
+    <text x="596" y="336" fill="#667788">ALPN</text>      <text x="828" y="336" text-anchor="end" fill="#00cfff">h2, http/1.1</text>
+    <text x="596" y="352" fill="#667788">Cost</text>      <text x="828" y="352" text-anchor="end" fill="#39ff14">$0 forever</text>
+  </g>
+
+  <line x1="20" y1="373" x2="840" y2="373" stroke="url(#G)" stroke-width="0.5" stroke-opacity="0.2"/>
+  <text x="430" y="379" text-anchor="middle" font-family="'Courier New',monospace" font-size="7" fill="#2a3344" letter-spacing="2">CLOUDBREAK · AMIR11REZA · GPL-3.0</text>
+</svg>
