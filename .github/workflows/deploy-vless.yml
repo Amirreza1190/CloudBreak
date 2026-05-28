@@ -167,15 +167,30 @@ jobs:
           DEPLOY_TIME="${{ steps.keygen.outputs.deploy_time }}"
           PROXY_IP="${{ github.event.inputs.proxy_ip }}"
 
-          # Build --var array  (array avoids ALL word-splitting / glob issues)
-          declare -a VARS=(
-            "--var" "UUID:${UUID}"
-            "--var" "WS_PATH:${WS_PATH}"
-            "--var" "DEPLOY_TIME:${DEPLOY_TIME}"
-          )
-          [ -n "${PROXY_IP}" ] && VARS+=("--var" "PROXYIP:${PROXY_IP}")
+          # ── Write wrangler.toml so workers_dev=true is EXPLICIT ────────
+          # Without this, wrangler may deploy the script but not bind it to
+          # the workers.dev subdomain → worker shows "0 workers bound".
+          cat > wrangler.toml <<TOML
+          name = "${WORKER_NAME}"
+          main = "worker.js"
+          compatibility_date = "2024-12-01"
+          workers_dev = true
 
-          # Workers.dev URL is always predictable — never parse wrangler output
+          [vars]
+          UUID = "${UUID}"
+          WS_PATH = "${WS_PATH}"
+          DEPLOY_TIME = "${DEPLOY_TIME}"
+          TOML
+
+          if [ -n "${PROXY_IP}" ]; then
+            printf 'PROXYIP = "%s"\n' "${PROXY_IP}" >> wrangler.toml
+          fi
+
+          echo "── wrangler.toml ────────────────────────────────────────"
+          cat wrangler.toml
+          echo ""
+
+          # Predictable base URL — used as fallback if wrangler output changes
           WORKER_URL="https://${WORKER_NAME}.workers.dev"
           HOST="${WORKER_NAME}.workers.dev"
 
@@ -191,10 +206,8 @@ jobs:
 
             # Disable pipefail around tee so we capture exit code correctly
             set +e
-            wrangler deploy worker.js \
-              --name "${WORKER_NAME}" \
-              --compatibility-date 2024-12-01 \
-              "${VARS[@]}" \
+            # Use wrangler.toml — no --var flags needed (vars are in toml)
+            wrangler deploy \
               2>&1 | tee /tmp/wrangler-deploy.log
             DEPLOY_EXIT=${PIPESTATUS[0]}
             set -e
@@ -388,15 +401,15 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMEOF'
           <div align="center">
 
-          ```
-          ██████╗██╗      ██████╗ ██╗   ██╗██████╗ ██████╗ ███████╗ █████╗ ██╗  ██╗
-          ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗██║ ██╔╝
-          ██║     ██║     ██║   ██║██║   ██║██║  ██║██████╔╝█████╗  ███████║█████╔╝ 
-          ██║     ██║     ██║   ██║██║   ██║██║  ██║██╔══██╗██╔══╝  ██╔══██║██╔═██╗ 
-          ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██████╔╝███████╗██║  ██║██║  ██╗
-           ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
-                            VLESS + VMess · Cloudflare Workers · DPI-Proof
-          ```
+          ---
+          
+          <p align="center">
+            <a href="#">
+              <img src="assets/banner-ascii.svg" width="100%" />
+            </a>
+          </p>
+          
+          ---
 
           </div>
 
