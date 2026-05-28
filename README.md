@@ -8,7 +8,7 @@
 
 <br/><br/>
 
-<a href="github.com/AMIR11REZA/CloudBreak/actions/workflows/deploy-vless.yml">
+<a href="../../actions/workflows/deploy-vless.yml">
   <img src="https://img.shields.io/github/actions/workflow/status/AMIR11REZA/CloudBreak/deploy-vless.yml?style=for-the-badge&logo=githubactions&logoColor=white&label=DEPLOY&color=00ffcc&labelColor=0a0a2e" />
 </a>
 <img src="https://img.shields.io/badge/Cloudflare-Workers-F38020?style=for-the-badge&logo=cloudflare&logoColor=white&labelColor=0a0a2e" />
