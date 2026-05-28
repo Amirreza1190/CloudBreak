@@ -187,15 +187,32 @@ jobs:
           cat wrangler.toml
           echo ""
 
-          # Predictable base URL — used as fallback if wrangler output changes
-          WORKER_URL="https://${WORKER_NAME}.workers.dev"
-          HOST="${WORKER_NAME}.workers.dev"
-
-          echo "Target URL : ${WORKER_URL}"
           echo "WS Path    : ${WS_PATH}"
           echo "ProxyIP    : ${PROXY_IP:-<none>}"
 
-          # ── Retry loop (up to 3 attempts) ──────────────────────────────
+          # ── Step A: Get workers.dev subdomain via Cloudflare API ────────
+          # URL format is <worker>.<SUBDOMAIN>.workers.dev — subdomain is
+          # per-account and NOT predictable without an API call.
+          echo "── Fetching account workers.dev subdomain ───────────────"
+          CF_SUBDOMAIN=$(curl -s \
+            "https://api.cloudflare.com/client/v4/accounts/${CLOUDFLARE_ACCOUNT_ID}/workers/subdomain" \
+            -H "Authorization: Bearer ${CLOUDFLARE_API_TOKEN}" \
+            -H "Content-Type: application/json" \
+            | python3 -c "import sys,json; d=json.load(sys.stdin); print(d['result']['subdomain'] if d.get('success') else '')" 2>/dev/null || echo "")
+
+          if [ -n "${CF_SUBDOMAIN}" ]; then
+            WORKER_URL="https://${WORKER_NAME}.${CF_SUBDOMAIN}.workers.dev"
+            HOST="${WORKER_NAME}.${CF_SUBDOMAIN}.workers.dev"
+            echo "✅ Subdomain from API: ${CF_SUBDOMAIN}"
+          else
+            echo "⚠️  Could not fetch subdomain from API — will extract from wrangler output"
+            WORKER_URL=""
+            HOST=""
+          fi
+
+          echo "Target URL : ${WORKER_URL:-<pending wrangler output>}"
+
+          # ── Step B: Deploy with retry ────────────────────────────────────
           DEPLOY_EXIT=1
           for attempt in 1 2 3; do
             echo ""
@@ -239,16 +256,34 @@ jobs:
             fi
           done
 
-          # ── Determine success via health endpoint (not exit code) ───────
-          # Cloudflare edge propagation can take up to ~30s
+          # ── Step C: Extract URL from wrangler output if API failed ───────
+          if [ -z "${WORKER_URL}" ]; then
+            echo "── Extracting URL from wrangler output ──────────────────"
+            WORKER_URL=$(grep -oP 'https://[a-zA-Z0-9_-]+\.[a-zA-Z0-9_-]+\.workers\.dev' \
+              /tmp/wrangler-deploy.log | head -1 || echo "")
+            if [ -n "${WORKER_URL}" ]; then
+              HOST=$(echo "${WORKER_URL}" | sed 's|https://||')
+              echo "✅ URL extracted from wrangler output: ${WORKER_URL}"
+            else
+              echo "::error title=URL Unknown::Could not determine worker URL from API or wrangler output"
+              echo "  Check wrangler output above for the actual URL"
+              cat /tmp/wrangler-deploy.log
+              exit 1
+            fi
+          fi
+
+          echo "✅ Final Worker URL: ${WORKER_URL}"
+
+          # ── Step D: Health check — wait for edge propagation ─────────────
+          # Cloudflare edge propagation can take up to ~60s after deploy
           echo ""
-          echo "── Health verification (up to 60s) ─────────────────────"
+          echo "── Health verification (up to 90s) ─────────────────────"
           HEALTH_OK=false
-          for i in $(seq 1 12); do
+          for i in $(seq 1 18); do
             HTTP=$(curl -s -o /tmp/health.json -w "%{http_code}" \
                    --max-time 8 --connect-timeout 5 \
                    "${WORKER_URL}/health" 2>/dev/null || echo "000")
-            echo "  [${i}/12] GET /health → HTTP ${HTTP}"
+            echo "  [${i}/18] GET ${WORKER_URL}/health → HTTP ${HTTP}"
             if [ "${HTTP}" = "200" ]; then
               HEALTH_OK=true
               echo "✅ Worker is live!"
@@ -398,15 +433,15 @@ jobs:
           cat >> "$GITHUB_STEP_SUMMARY" <<'SUMEOF'
           <div align="center">
 
-          ---
-          
-          <p align="center">
-            <a href="#">
-              <img src="https://github.com/RANGER-exe/CloudBreak/assets/banner-ascii.svg" width="100%" />
-            </a>
-          </p>
-          
-          ---
+          ```
+          ██████╗██╗      ██████╗ ██╗   ██╗██████╗ ██████╗ ███████╗ █████╗ ██╗  ██╗
+          ██╔════╝██║     ██╔═══██╗██║   ██║██╔══██╗██╔══██╗██╔════╝██╔══██╗██║ ██╔╝
+          ██║     ██║     ██║   ██║██║   ██║██║  ██║██████╔╝█████╗  ███████║█████╔╝ 
+          ██║     ██║     ██║   ██║██║   ██║██║  ██║██╔══██╗██╔══╝  ██╔══██║██╔═██╗ 
+          ╚██████╗███████╗╚██████╔╝╚██████╔╝██████╔╝██████╔╝███████╗██║  ██║██║  ██╗
+           ╚═════╝╚══════╝ ╚═════╝  ╚═════╝ ╚═════╝ ╚═════╝ ╚══════╝╚═╝  ╚═╝╚═╝  ╚═╝
+                            VLESS + VMess · Cloudflare Workers · DPI-Proof
+          ```
 
           </div>
 
