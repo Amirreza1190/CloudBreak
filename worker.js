@@ -1,413 +1,493 @@
 /**
- * CloudBreak — VLESS + VMess over WebSocket on Cloudflare Workers
- * Protocol: VLESS (RFC-ish) over WebSocket, TLS terminated by Cloudflare
- * DPI evasion: Cloudflare provides genuine TLS cert + valid SNI → traffic
- *              is indistinguishable from normal HTTPS to any DPI appliance.
- *
- * Environment variables (set via wrangler deploy --var or dashboard):
- *   UUID        — VLESS authentication UUID (required)
- *   WS_PATH     — WebSocket endpoint path (default: "/ws")
- *   PROXYIP     — Optional chaining IP; if set, all TCP connects go here:443
- *   DEPLOY_TIME — Informational timestamp injected at deploy time
+ * CloudBreak Worker — VLESS over WebSocket on Cloudflare Workers
+ * Core engine based on zizifn/edgetunnel (battle-tested implementation)
+ * Added: /health endpoint, /sub subscription endpoint, /UUID config page
  */
 
-import { connect } from "cloudflare:sockets";
+import { connect } from 'cloudflare:sockets';
 
 // ---------------------------------------------------------------------------
-// Helpers
+// Config — overridden by env vars set in wrangler.toml at deploy time
 // ---------------------------------------------------------------------------
+let userID   = 'd342d11e-d424-4583-b36e-524ab1f0afa4';
+let proxyIP  = '';
+let wsPath   = '/ws';
 
-/** Convert a UUID string ("xxxxxxxx-xxxx-…") to a 16-byte Uint8Array. */
-function uuidToBytes(uuid) {
-  const hex = uuid.replace(/-/g, "");
-  if (hex.length !== 32) throw new Error("Invalid UUID length");
-  const bytes = new Uint8Array(16);
-  for (let i = 0; i < 16; i++) {
-    bytes[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
-  }
-  return bytes;
+if (!isValidUUID(userID)) {
+  throw new Error('uuid is not valid');
 }
 
-/** Compare two Uint8Arrays for equality. */
-function bytesEqual(a, b) {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
-  return true;
-}
+// ---------------------------------------------------------------------------
+// Main fetch handler
+// ---------------------------------------------------------------------------
+export default {
+  async fetch(request, env, ctx) {
+    try {
+      // Pull config from env (set via wrangler.toml [vars])
+      userID  = env.UUID    || userID;
+      proxyIP = env.PROXYIP || proxyIP;
+      wsPath  = env.WS_PATH || wsPath;
 
-/**
- * Parse the VLESS request header from a raw byte buffer.
- *
- * VLESS header layout (version 0):
- *   [0]      — version (must be 0x00)
- *   [1..16]  — UUID (16 bytes)
- *   [17]     — addons length (M)
- *   [18..17+M] — addons data (skip)
- *   [18+M]   — command (0x01 = TCP)
- *   [19+M, 20+M] — destination port (big-endian uint16)
- *   [21+M]   — address type
- *                0x01 → IPv4  (4 bytes)
- *                0x02 → domain (1-byte length + N bytes)
- *                0x03 → IPv6  (16 bytes)
- *   [...]    — address bytes
- *   [rest]   — initial payload
- *
- * Returns { uuid, command, port, address, payloadOffset } or throws.
- */
-function parseVlessHeader(buf) {
-  const view = new DataView(buf);
-  let offset = 0;
+      const upgradeHeader = request.headers.get('Upgrade');
+      const url = new URL(request.url);
+      const host = request.headers.get('Host') || url.hostname;
 
-  // Version
-  const version = view.getUint8(offset++);
-  if (version !== 0x00) throw new Error(`Unsupported VLESS version: ${version}`);
+      // WebSocket upgrade → proxy handler
+      if (upgradeHeader && upgradeHeader.toLowerCase() === 'websocket') {
+        return await vlessOverWSHandler(request);
+      }
 
-  // UUID (16 bytes)
-  const uuid = new Uint8Array(buf, offset, 16);
-  offset += 16;
+      // HTTP routes
+      switch (url.pathname) {
+        case '/':
+          return new Response('CloudBreak Worker — Active', {
+            headers: { 'Content-Type': 'text/plain' },
+          });
 
-  // Addons
-  const addonsLen = view.getUint8(offset++);
-  offset += addonsLen;
+        case '/health':
+          return new Response(JSON.stringify({
+            status:          'ok',
+            worker:          'CloudBreak',
+            protocol:        'vless',
+            transport:       'websocket',
+            tls:             'cloudflare',
+            host:            host,
+            ws_path:         wsPath,
+            uuid_configured: Boolean(env.UUID),
+            deployed:        env.DEPLOY_TIME || 'unknown',
+            timestamp:       new Date().toISOString(),
+          }, null, 2), {
+            headers: {
+              'Content-Type': 'application/json',
+              'Cache-Control': 'no-store',
+            },
+          });
 
-  // Command
-  const command = view.getUint8(offset++);
+        case '/sub': {
+          // Base64-encoded subscription feed (VLESS + optional VMess)
+          const vlessLink = makeVlessLink(userID, host, wsPath);
+          const b64 = btoa(vlessLink);
+          return new Response(b64, {
+            headers: {
+              'Content-Type': 'text/plain; charset=utf-8',
+              'Cache-Control': 'no-store',
+            },
+          });
+        }
 
-  // Port (big-endian uint16)
-  const port = view.getUint16(offset, false);
-  offset += 2;
+        case `/${userID}`: {
+          // Human-readable config page (original edgetunnel style)
+          return new Response(getVLESSConfig(userID, host, wsPath), {
+            headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+          });
+        }
 
-  // Address type + address
-  const addrType = view.getUint8(offset++);
-  let address;
-
-  if (addrType === 0x01) {
-    // IPv4
-    address = `${view.getUint8(offset)}.${view.getUint8(offset + 1)}.${view.getUint8(offset + 2)}.${view.getUint8(offset + 3)}`;
-    offset += 4;
-  } else if (addrType === 0x02) {
-    // Domain name
-    const domainLen = view.getUint8(offset++);
-    address = new TextDecoder().decode(new Uint8Array(buf, offset, domainLen));
-    offset += domainLen;
-  } else if (addrType === 0x03) {
-    // IPv6
-    const parts = [];
-    for (let i = 0; i < 8; i++) {
-      parts.push(view.getUint16(offset, false).toString(16));
-      offset += 2;
+        default:
+          return new Response('Not found', { status: 404 });
+      }
+    } catch (err) {
+      return new Response(String(err), { status: 500 });
     }
-    address = `[${parts.join(":")}]`;
-  } else {
-    throw new Error(`Unknown address type: ${addrType}`);
-  }
+  },
+};
 
-  return { uuid, command, port, address, payloadOffset: offset };
+// ---------------------------------------------------------------------------
+// VLESS over WebSocket handler
+// ---------------------------------------------------------------------------
+async function vlessOverWSHandler(request) {
+  const webSocketPair = new WebSocketPair();
+  const [client, webSocket] = Object.values(webSocketPair);
+
+  webSocket.accept();
+
+  let address          = '';
+  let portWithRandomLog = '';
+
+  const log = (info, event) => {
+    console.log(`[${address}:${portWithRandomLog}] ${info}`, event || '');
+  };
+
+  const earlyDataHeader    = request.headers.get('sec-websocket-protocol') || '';
+  const readableWSStream   = makeReadableWebSocketStream(webSocket, earlyDataHeader, log);
+
+  let remoteSocketWrapper = { value: null };
+  let udpStreamWrite      = null;
+  let isDns               = false;
+
+  // WS → remote
+  readableWSStream.pipeTo(new WritableStream({
+    async write(chunk, controller) {
+      if (isDns && udpStreamWrite) {
+        return udpStreamWrite(chunk);
+      }
+
+      if (remoteSocketWrapper.value) {
+        const writer = remoteSocketWrapper.value.writable.getWriter();
+        await writer.write(chunk);
+        writer.releaseLock();
+        return;
+      }
+
+      const {
+        hasError, message,
+        portRemote = 443,
+        addressRemote = '',
+        rawDataIndex,
+        vlessVersion = new Uint8Array([0, 0]),
+        isUDP,
+      } = processVlessHeader(chunk, userID);
+
+      address           = addressRemote;
+      portWithRandomLog = `${portRemote}--${Math.random()} ${isUDP ? 'udp' : 'tcp'}`;
+
+      if (hasError) {
+        throw new Error(message);
+      }
+
+      if (isUDP) {
+        if (portRemote === 53) {
+          isDns = true;
+        } else {
+          throw new Error('UDP proxy only enabled for DNS (port 53)');
+        }
+      }
+
+      const vlessResponseHeader = new Uint8Array([vlessVersion[0], 0]);
+      const rawClientData       = chunk.slice(rawDataIndex);
+
+      if (isDns) {
+        const { write } = await handleUDPOutBound(webSocket, vlessResponseHeader, log);
+        udpStreamWrite = write;
+        udpStreamWrite(rawClientData);
+        return;
+      }
+
+      handleTCPOutBound(
+        remoteSocketWrapper, addressRemote, portRemote,
+        rawClientData, webSocket, vlessResponseHeader, log,
+      );
+    },
+    close() { log('readableWSStream closed'); },
+    abort(reason) { log('readableWSStream aborted', JSON.stringify(reason)); },
+  })).catch(err => { log('pipeTo error', err); });
+
+  return new Response(null, { status: 101, webSocket: client });
 }
 
 // ---------------------------------------------------------------------------
-// Subscription link generators
+// TCP outbound
 // ---------------------------------------------------------------------------
+async function handleTCPOutBound(
+  remoteSocket, addressRemote, portRemote,
+  rawClientData, webSocket, vlessResponseHeader, log,
+) {
+  async function connectAndWrite(address, port) {
+    const tcpSocket = connect({ hostname: address, port });
+    remoteSocket.value = tcpSocket;
+    log(`connected to ${address}:${port}`);
+    const writer = tcpSocket.writable.getWriter();
+    await writer.write(rawClientData);
+    writer.releaseLock();
+    return tcpSocket;
+  }
 
-function makeVlessLink(uuid, host, wsPath) {
+  async function retry() {
+    const tcpSocket = await connectAndWrite(proxyIP || addressRemote, portRemote);
+    tcpSocket.closed.catch(err => {
+      console.log('retry tcpSocket closed error', err);
+    }).finally(() => safeCloseWebSocket(webSocket));
+    remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, null, log);
+  }
+
+  const tcpSocket = await connectAndWrite(addressRemote, portRemote);
+  remoteSocketToWS(tcpSocket, webSocket, vlessResponseHeader, retry, log);
+}
+
+// ---------------------------------------------------------------------------
+// Readable stream from WebSocket
+// ---------------------------------------------------------------------------
+function makeReadableWebSocketStream(webSocketServer, earlyDataHeader, log) {
+  let readableStreamCancel = false;
+
+  return new ReadableStream({
+    start(controller) {
+      webSocketServer.addEventListener('message', event => {
+        if (readableStreamCancel) return;
+        controller.enqueue(event.data);
+      });
+
+      webSocketServer.addEventListener('close', () => {
+        safeCloseWebSocket(webSocketServer);
+        if (!readableStreamCancel) controller.close();
+      });
+
+      webSocketServer.addEventListener('error', err => {
+        log('webSocket error');
+        controller.error(err);
+      });
+
+      const { earlyData, error } = base64ToArrayBuffer(earlyDataHeader);
+      if (error)     controller.error(error);
+      else if (earlyData) controller.enqueue(earlyData);
+    },
+    cancel(reason) {
+      if (readableStreamCancel) return;
+      log(`ReadableStream cancelled: ${reason}`);
+      readableStreamCancel = true;
+      safeCloseWebSocket(webSocketServer);
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// VLESS header parser
+// ---------------------------------------------------------------------------
+function processVlessHeader(vlessBuffer, userID) {
+  if (vlessBuffer.byteLength < 24) {
+    return { hasError: true, message: 'invalid data' };
+  }
+
+  const version     = new Uint8Array(vlessBuffer.slice(0, 1));
+  const uuidBytes   = new Uint8Array(vlessBuffer.slice(1, 17));
+  const isValidUser = stringify(uuidBytes) === userID;
+
+  if (!isValidUser) {
+    return { hasError: true, message: 'invalid user' };
+  }
+
+  const optLength = new Uint8Array(vlessBuffer.slice(17, 18))[0];
+  const command   = new Uint8Array(vlessBuffer.slice(18 + optLength, 19 + optLength))[0];
+
+  let isUDP = false;
+  if      (command === 1) { /* TCP */ }
+  else if (command === 2) { isUDP = true; }
+  else {
+    return { hasError: true, message: `command ${command} not supported` };
+  }
+
+  const portIndex  = 18 + optLength + 1;
+  const portRemote = new DataView(vlessBuffer.slice(portIndex, portIndex + 2)).getUint16(0);
+
+  let addressIndex      = portIndex + 2;
+  const addressType     = new Uint8Array(vlessBuffer.slice(addressIndex, addressIndex + 1))[0];
+  let addressLength     = 0;
+  let addressValueIndex = addressIndex + 1;
+  let addressValue      = '';
+
+  switch (addressType) {
+    case 1: // IPv4
+      addressLength = 4;
+      addressValue  = new Uint8Array(vlessBuffer.slice(addressValueIndex, addressValueIndex + 4)).join('.');
+      break;
+    case 2: // domain
+      addressLength     = new Uint8Array(vlessBuffer.slice(addressValueIndex, addressValueIndex + 1))[0];
+      addressValueIndex += 1;
+      addressValue      = new TextDecoder().decode(
+        vlessBuffer.slice(addressValueIndex, addressValueIndex + addressLength)
+      );
+      break;
+    case 3: { // IPv6
+      addressLength = 16;
+      const dv  = new DataView(vlessBuffer.slice(addressValueIndex, addressValueIndex + 16));
+      const ipv6 = [];
+      for (let i = 0; i < 8; i++) ipv6.push(dv.getUint16(i * 2).toString(16));
+      addressValue = ipv6.join(':');
+      break;
+    }
+    default:
+      return { hasError: true, message: `invalid addressType: ${addressType}` };
+  }
+
+  if (!addressValue) {
+    return { hasError: true, message: `empty address, type ${addressType}` };
+  }
+
+  return {
+    hasError:      false,
+    addressRemote: addressValue,
+    addressType,
+    portRemote,
+    rawDataIndex:  addressValueIndex + addressLength,
+    vlessVersion:  version,
+    isUDP,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Remote socket → WebSocket pump
+// ---------------------------------------------------------------------------
+async function remoteSocketToWS(remoteSocket, webSocket, vlessResponseHeader, retry, log) {
+  let hasIncomingData = false;
+  let vlessHeader     = vlessResponseHeader;
+
+  await remoteSocket.readable.pipeTo(new WritableStream({
+    async write(chunk, controller) {
+      hasIncomingData = true;
+      if (webSocket.readyState !== WS_READY_STATE_OPEN) {
+        controller.error('webSocket not open');
+        return;
+      }
+      if (vlessHeader) {
+        webSocket.send(await new Blob([vlessHeader, chunk]).arrayBuffer());
+        vlessHeader = null;
+      } else {
+        webSocket.send(chunk);
+      }
+    },
+    close()        { log(`remote readable closed, hadData=${hasIncomingData}`); },
+    abort(reason)  { console.error('remote readable aborted', reason); },
+  })).catch(err => {
+    console.error('remoteSocketToWS error', err.stack || err);
+    safeCloseWebSocket(webSocket);
+  });
+
+  if (!hasIncomingData && retry) {
+    log('no data from remote, retrying via proxyIP');
+    retry();
+  }
+}
+
+// ---------------------------------------------------------------------------
+// UDP outbound (DNS only)
+// ---------------------------------------------------------------------------
+async function handleUDPOutBound(webSocket, vlessResponseHeader, log) {
+  let isVlessHeaderSent = false;
+
+  const transform = new TransformStream({
+    transform(chunk, controller) {
+      for (let i = 0; i < chunk.byteLength;) {
+        const udpLen  = new DataView(chunk.slice(i, i + 2)).getUint16(0);
+        const udpData = new Uint8Array(chunk.slice(i + 2, i + 2 + udpLen));
+        i += 2 + udpLen;
+        controller.enqueue(udpData);
+      }
+    },
+  });
+
+  transform.readable.pipeTo(new WritableStream({
+    async write(chunk) {
+      const resp     = await fetch('https://1.1.1.1/dns-query', {
+        method:  'POST',
+        headers: { 'content-type': 'application/dns-message' },
+        body:    chunk,
+      });
+      const result   = await resp.arrayBuffer();
+      const size     = result.byteLength;
+      const sizeBuf  = new Uint8Array([(size >> 8) & 0xff, size & 0xff]);
+
+      if (webSocket.readyState === WS_READY_STATE_OPEN) {
+        log(`DNS success, response size=${size}`);
+        if (isVlessHeaderSent) {
+          webSocket.send(await new Blob([sizeBuf, result]).arrayBuffer());
+        } else {
+          webSocket.send(await new Blob([vlessResponseHeader, sizeBuf, result]).arrayBuffer());
+          isVlessHeaderSent = true;
+        }
+      }
+    },
+  })).catch(err => log('DNS UDP error: ' + err));
+
+  const writer = transform.writable.getWriter();
+  return { write: chunk => writer.write(chunk) };
+}
+
+// ---------------------------------------------------------------------------
+// Link generators
+// ---------------------------------------------------------------------------
+function makeVlessLink(uuid, host, path) {
   const params = new URLSearchParams({
-    encryption: "none",
-    security: "tls",
-    sni: host,
-    fp: "chrome",
-    type: "ws",
-    host: host,
-    path: wsPath,
-    alpn: "h2,http/1.1",
+    encryption: 'none',
+    security:   'tls',
+    sni:        host,
+    fp:         'chrome',
+    type:       'ws',
+    host:       host,
+    path:       path,
+    alpn:       'h2,http/1.1',
   });
   return `vless://${uuid}@${host}:443?${params.toString()}#CF-VLESS-IR`;
 }
 
-function makeVmessLink(uuid, host, wsPath) {
-  const config = {
-    v: "2",
-    ps: "CF-VMess-IR",
-    add: host,
-    port: 443,
-    id: uuid,
-    aid: 0,
-    net: "ws",
-    type: "none",
-    host: host,
-    path: wsPath,
-    tls: "tls",
-    sni: host,
-    alpn: "h2,http/1.1",
-    fp: "chrome",
-  };
-  return `vmess://${btoa(JSON.stringify(config))}`;
+function getVLESSConfig(uuid, host, path) {
+  const vlessLink = makeVlessLink(uuid, host, path);
+  return [
+    '################################################################',
+    'v2ray / Hiddify / Streisand',
+    '---------------------------------------------------------------',
+    vlessLink,
+    '---------------------------------------------------------------',
+    '################################################################',
+    'Clash Meta config:',
+    '---------------------------------------------------------------',
+    `- type: vless`,
+    `  name: ${host}`,
+    `  server: ${host}`,
+    `  port: 443`,
+    `  uuid: ${uuid}`,
+    `  network: ws`,
+    `  tls: true`,
+    `  sni: ${host}`,
+    `  client-fingerprint: chrome`,
+    `  ws-opts:`,
+    `    path: "${path}"`,
+    `    headers:`,
+    `      host: ${host}`,
+    '---------------------------------------------------------------',
+    '################################################################',
+  ].join('\n');
 }
 
 // ---------------------------------------------------------------------------
-// WebSocket proxy handler
+// Utilities
 // ---------------------------------------------------------------------------
+const WS_READY_STATE_OPEN    = 1;
+const WS_READY_STATE_CLOSING = 2;
 
-async function handleWebSocket(request, env) {
-  const { UUID, PROXYIP } = env;
-
-  // Validate UUID env var is present
-  if (!UUID) {
-    return new Response("UUID environment variable not configured", { status: 500 });
-  }
-
-  let expectedUuidBytes;
+function safeCloseWebSocket(socket) {
   try {
-    expectedUuidBytes = uuidToBytes(UUID);
-  } catch {
-    return new Response("Invalid UUID format in environment", { status: 500 });
+    if (socket.readyState === WS_READY_STATE_OPEN ||
+        socket.readyState === WS_READY_STATE_CLOSING) {
+      socket.close();
+    }
+  } catch (e) {
+    console.error('safeCloseWebSocket error', e);
   }
+}
 
-  // Must be a WebSocket upgrade
-  const upgradeHeader = request.headers.get("Upgrade");
-  if (!upgradeHeader || upgradeHeader.toLowerCase() !== "websocket") {
-    return new Response(
-      "This endpoint requires a WebSocket connection (Upgrade: websocket)",
-      { status: 426, headers: { Upgrade: "websocket" } }
-    );
+function base64ToArrayBuffer(base64Str) {
+  if (!base64Str) return { error: null };
+  try {
+    const b64     = base64Str.replace(/-/g, '+').replace(/_/g, '/');
+    const decoded = atob(b64);
+    const buf     = Uint8Array.from(decoded, c => c.charCodeAt(0));
+    return { earlyData: buf.buffer, error: null };
+  } catch (e) {
+    return { error: e };
   }
-
-  // Create WebSocket pair — server side used by this worker, client side
-  // sent back to the connecting client.
-  const [clientWs, serverWs] = new WebSocketPair();
-  serverWs.accept();
-
-  // Track the TCP socket so we can clean it up
-  let tcpSocket = null;
-  let tcpWriter = null;
-  let connectionEstablished = false;
-
-  // We resolve this promise when the proxy session ends so the handler
-  // can keep the worker alive for the duration of the connection.
-  let resolveSession;
-  const sessionDone = new Promise((r) => (resolveSession = r));
-
-  // ------------------------------------------------------------------
-  // Incoming WebSocket messages from the client
-  // ------------------------------------------------------------------
-  serverWs.addEventListener("message", async (event) => {
-    try {
-      const rawData = event.data;
-
-      // ArrayBuffer for binary frames, string for text (shouldn't happen)
-      const buf =
-        rawData instanceof ArrayBuffer
-          ? rawData
-          : new TextEncoder().encode(rawData).buffer;
-
-      if (!connectionEstablished) {
-        // ----------------------------------------------------------------
-        // First message — must contain the VLESS header
-        // ----------------------------------------------------------------
-        let parsed;
-        try {
-          parsed = parseVlessHeader(buf);
-        } catch (err) {
-          console.error("VLESS header parse failed:", err.message);
-          serverWs.close(1002, "Bad VLESS header");
-          resolveSession();
-          return;
-        }
-
-        // Validate UUID
-        if (!bytesEqual(parsed.uuid, expectedUuidBytes)) {
-          console.error("UUID mismatch — rejecting connection");
-          serverWs.close(1008, "Unauthorized");
-          resolveSession();
-          return;
-        }
-
-        // Only TCP (0x01) is supported
-        if (parsed.command !== 0x01) {
-          console.warn(`Unsupported VLESS command: ${parsed.command}`);
-          serverWs.close(1003, "Unsupported command");
-          resolveSession();
-          return;
-        }
-
-        // ----------------------------------------------------------------
-        // Determine destination
-        // If PROXYIP is configured, chain through it (useful for countries
-        // where workers.dev itself is blocked — route via a relay IP).
-        // ----------------------------------------------------------------
-        const destHost = PROXYIP || parsed.address;
-        const destPort = PROXYIP ? 443 : parsed.port;
-
-        // Open TCP connection to destination
-        try {
-          tcpSocket = connect({ hostname: destHost, port: destPort });
-          tcpWriter = tcpSocket.writable.getWriter();
-        } catch (err) {
-          console.error("TCP connect failed:", err.message);
-          serverWs.close(1011, "TCP connection failed");
-          resolveSession();
-          return;
-        }
-
-        // Send VLESS response header: [version=0x00, addon_length=0x00]
-        serverWs.send(new Uint8Array([0x00, 0x00]));
-        connectionEstablished = true;
-
-        // Forward any payload bytes that arrived after the VLESS header
-        if (parsed.payloadOffset < buf.byteLength) {
-          const initialPayload = buf.slice(parsed.payloadOffset);
-          await tcpWriter.write(new Uint8Array(initialPayload));
-        }
-
-        // ----------------------------------------------------------------
-        // Pump TCP → WebSocket in background
-        // ----------------------------------------------------------------
-        (async () => {
-          try {
-            const reader = tcpSocket.readable.getReader();
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) break;
-              serverWs.send(value);
-            }
-          } catch (err) {
-            // Remote closed connection — normal
-          } finally {
-            try { serverWs.close(1000, "Remote closed"); } catch {}
-            resolveSession();
-          }
-        })();
-
-      } else {
-        // ----------------------------------------------------------------
-        // Subsequent messages — raw proxy data
-        // ----------------------------------------------------------------
-        await tcpWriter.write(new Uint8Array(buf));
-      }
-    } catch (err) {
-      console.error("WebSocket message handler error:", err.message);
-      try { serverWs.close(1011, "Internal error"); } catch {}
-      resolveSession();
-    }
-  });
-
-  serverWs.addEventListener("close", async () => {
-    try {
-      if (tcpWriter) {
-        await tcpWriter.close();
-      }
-    } catch {}
-    resolveSession();
-  });
-
-  serverWs.addEventListener("error", (err) => {
-    console.error("WebSocket error:", err.message);
-    resolveSession();
-  });
-
-  // Return the 101 Switching Protocols response
-  const response = new Response(null, {
-    status: 101,
-    webSocket: clientWs,
-  });
-
-  // Keep the worker alive for the duration of the proxy session
-  // (Cloudflare requires we await something to prevent early exit)
-  sessionDone.then(() => {});
-
-  return response;
 }
 
-// ---------------------------------------------------------------------------
-// Subscription endpoint (/sub)
-// ---------------------------------------------------------------------------
-
-function handleSub(request, env) {
-  const { UUID, WS_PATH = "/ws" } = env;
-  if (!UUID) {
-    return new Response("UUID not configured", { status: 500 });
-  }
-
-  const host = request.headers.get("Host") || "your-worker.workers.dev";
-  const vlessLink = makeVlessLink(UUID, host, WS_PATH);
-  const vmessLink = makeVmessLink(UUID, host, WS_PATH);
-
-  const combined = `${vlessLink}\n${vmessLink}`;
-  const b64 = btoa(combined);
-
-  return new Response(b64, {
-    headers: {
-      "Content-Type": "text/plain; charset=utf-8",
-      "Cache-Control": "no-store",
-    },
-  });
+function isValidUUID(uuid) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[4][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(uuid);
 }
 
-// ---------------------------------------------------------------------------
-// Health endpoint (/health)
-// ---------------------------------------------------------------------------
+// UUID byte array → string
+const byteToHex = Array.from({ length: 256 }, (_, i) => (i + 256).toString(16).slice(1));
 
-function handleHealth(request, env) {
-  const { UUID, WS_PATH = "/ws", DEPLOY_TIME = "unknown" } = env;
-  const host = request.headers.get("Host") || "unknown";
-
-  const data = {
-    status: "ok",
-    worker: "CloudBreak",
-    protocols: ["vless", "vmess"],
-    transport: "websocket",
-    tls: "cloudflare",
-    host,
-    ws_path: WS_PATH,
-    uuid_configured: Boolean(UUID),
-    deployed: DEPLOY_TIME,
-    timestamp: new Date().toISOString(),
-  };
-
-  return new Response(JSON.stringify(data, null, 2), {
-    headers: {
-      "Content-Type": "application/json",
-      "Cache-Control": "no-store",
-    },
-  });
+function unsafeStringify(arr, offset = 0) {
+  return [
+    byteToHex[arr[offset]],    byteToHex[arr[offset+1]],
+    byteToHex[arr[offset+2]],  byteToHex[arr[offset+3]], '-',
+    byteToHex[arr[offset+4]],  byteToHex[arr[offset+5]], '-',
+    byteToHex[arr[offset+6]],  byteToHex[arr[offset+7]], '-',
+    byteToHex[arr[offset+8]],  byteToHex[arr[offset+9]], '-',
+    byteToHex[arr[offset+10]], byteToHex[arr[offset+11]],
+    byteToHex[arr[offset+12]], byteToHex[arr[offset+13]],
+    byteToHex[arr[offset+14]], byteToHex[arr[offset+15]],
+  ].join('').toLowerCase();
 }
 
-// ---------------------------------------------------------------------------
-// Root endpoint (/)
-// ---------------------------------------------------------------------------
-
-function handleRoot() {
-  return new Response("CloudBreak Worker — Active", {
-    headers: { "Content-Type": "text/plain" },
-  });
+function stringify(arr, offset = 0) {
+  const uuid = unsafeStringify(arr, offset);
+  if (!isValidUUID(uuid)) throw new TypeError('Invalid UUID bytes');
+  return uuid;
 }
-
-// ---------------------------------------------------------------------------
-// Main fetch handler (ES module export)
-// ---------------------------------------------------------------------------
-
-export default {
-  async fetch(request, env) {
-    const url = new URL(request.url);
-    const path = url.pathname;
-    const wsPath = env.WS_PATH || "/ws";
-
-    // Route requests
-    if (path === wsPath) {
-      return handleWebSocket(request, env);
-    }
-
-    if (path === "/sub") {
-      return handleSub(request, env);
-    }
-
-    if (path === "/health") {
-      return handleHealth(request, env);
-    }
-
-    if (path === "/") {
-      return handleRoot();
-    }
-
-    return new Response("Not Found", { status: 404 });
-  },
-};
